@@ -119,136 +119,53 @@
 #define CONFIG_CMD_SETEXPR
 #undef CONFIG_CMD_IMLS
 
-
 #define CONFIG_LOADADDR                        0x12000000
 #define CONFIG_SYS_TEXT_BASE           0x17800000
 
-#ifdef CONFIG_SUPPORT_EMMC_BOOT
-#define EMMC_ENV \
-	"emmcdev=2\0" \
-	"update_emmc_firmware=" \
-		"if test ${ip_dyn} = yes; then " \
-			"setenv get_cmd dhcp; " \
-		"else " \
-			"setenv get_cmd tftp; " \
-		"fi; " \
-		"if ${get_cmd} ${update_sd_firmware_filename}; then " \
-			"if mmc dev ${emmcdev}; then "	\
-				"setexpr fw_sz ${filesize} / 0x200; " \
-				"setexpr fw_sz ${fw_sz} + 1; "	\
-				"mmc write ${loadaddr} 0x2 ${fw_sz}; " \
-			"fi; "	\
-		"fi\0"
-#else
-#define EMMC_ENV ""
-#endif
-
-#ifdef CONFIG_CMD_SF
-#define SF_ENV \
-	"update_spi_firmware=" \
-		"if test ${ip_dyn} = yes; then " \
-			"setenv get_cmd dhcp; " \
-		"else " \
-			"setenv get_cmd tftp; " \
-		"fi; " \
-		"if ${get_cmd} ${update_spi_firmware_filename}; then " \
-			"if sf probe; then "	\
-				"sf erase 0 0xc0000; " \
-				"sf write ${loadaddr} 0x400 ${filesize}; " \
-			"fi; "	\
-		"fi\0"
-#else
-#define SF_ENV ""
-#endif
-
 #define CONFIG_EXTRA_ENV_SETTINGS \
-	"script=boot.scr\0" \
-	"image=zImage\0" \
 	"fdt_file=" CONFIG_DEFAULT_FDT_FILE "\0" \
-	"fdt_addr=0x18000000\0" \
-	"boot_fdt=try\0" \
-	"ip_dyn=yes\0" \
+	"fdt_addr_r=0x11000000\0" \
+	"scriptaddr=0x10008000\0" \
+	"kernel_addr_r=" __stringify(CONFIG_LOADADDR) "\0" \
 	"console=" CONFIG_CONSOLE_DEV "\0" \
-	"fdt_high=0xffffffff\0"	  \
-	"initrd_high=0xffffffff\0" \
-	"mmcdev=" __stringify(CONFIG_SYS_MMC_ENV_DEV) "\0" \
-	"mmcpart=1\0" \
-	"mmcroot=" CONFIG_MMCROOT " rootwait rw\0" \
-	"update_sd_firmware=" \
-		"if test ${ip_dyn} = yes; then " \
-			"setenv get_cmd dhcp; " \
-		"else " \
-			"setenv get_cmd tftp; " \
-		"fi; " \
-		"if mmc dev ${mmcdev}; then "	\
-			"if ${get_cmd} ${update_sd_firmware_filename}; then " \
-				"setexpr fw_sz ${filesize} / 0x200; " \
-				"setexpr fw_sz ${fw_sz} + 1; "	\
-				"mmc write ${loadaddr} 0x2 ${fw_sz}; " \
-			"fi; "	\
-		"fi\0" \
-	EMMC_ENV	  \
-	SF_ENV	  \
-	"mmcargs=setenv bootargs console=${console},${baudrate} " \
-		"root=${mmcroot}\0" \
-	"loadbootscript=" \
-		"fatload mmc ${mmcdev}:${mmcpart} ${loadaddr} ${script};\0" \
-	"bootscript=echo Running bootscript from mmc ...; " \
-		"source\0" \
-	"loadimage=fatload mmc ${mmcdev}:${mmcpart} ${loadaddr} ${image}\0" \
-	"loadfdt=fatload mmc ${mmcdev}:${mmcpart} ${fdt_addr} ${fdt_file}\0" \
-	"mmcboot=echo Booting from mmc ...; " \
-		"run mmcargs; " \
-		"if test ${boot_fdt} = yes || test ${boot_fdt} = try; then " \
-			"if run loadfdt; then " \
-				"bootz ${loadaddr} - ${fdt_addr}; " \
-			"else " \
-				"if test ${boot_fdt} = try; then " \
-					"bootz; " \
-				"else " \
-					"echo WARN: Cannot load the DT; " \
-				"fi; " \
-			"fi; " \
-		"else " \
-			"bootz; " \
-		"fi;\0" \
-	"netargs=setenv bootargs console=${console},${baudrate} " \
-		"root=/dev/nfs " \
-		"ip=dhcp nfsroot=${serverip}:${nfsroot},v3,tcp\0" \
-	"netboot=echo Booting from net ...; " \
-		"run netargs; " \
-		"if test ${ip_dyn} = yes; then " \
-			"setenv get_cmd dhcp; " \
-		"else " \
-			"setenv get_cmd tftp; " \
-		"fi; " \
-		"${get_cmd} ${image}; " \
-		"if test ${boot_fdt} = yes || test ${boot_fdt} = try; then " \
-			"if ${get_cmd} ${fdt_addr} ${fdt_file}; then " \
-				"bootz ${loadaddr} - ${fdt_addr}; " \
-			"else " \
-				"if test ${boot_fdt} = try; then " \
-					"bootz; " \
-				"else " \
-					"echo WARN: Cannot load the DT; " \
-				"fi; " \
-			"fi; " \
-		"else " \
-			"bootz; " \
-		"fi;\0"
+	"dtypes=mmc\0" \
+	"bootpart=1\0" \
+	"bootord=0 1 2\0" \
+	"fail=0\0" \
+	"lbs=load ${dtype} ${disk}:${bootpart} ${scriptaddr} /bootscript ;\0" \
+	"evi=env import -t ${scriptaddr} ${filesize} ;\0"
 
 #define CONFIG_BOOTCOMMAND \
-	"mmc dev ${mmcdev};" \
-	"if mmc rescan; then " \
-		"if run loadbootscript; then " \
-		"run bootscript; " \
-		"else " \
-			"if run loadimage; then " \
-				"run mmcboot; " \
-			"else run netboot; " \
+	"for dtype in ${dtypes} ; do " \
+		"for disk in ${bootord} ; do " \
+			"if test ${fail} -eq 0; then " \
+				"${dtype} dev ${disk} ;" \
+				"if run lbs; then " \
+					"if run evi; then " \
+						"run doboot; " \
+						"echo found a bootscript but boot failed.; " \
+						"fail=1; " \
+						"exit; " \
+					"else " \
+						"fail=1; " \
+					"fi; " \
+				"fi; " \
 			"fi; " \
-		"fi; " \
-	"else run netboot; fi"
+		"done; " \
+	"done; " \
+	"echo; echo bootscript not found on local media; " \
+	"setenv ethaddr 00:de:ad:be:ef:aa; " \
+	"if dhcp ${scriptaddr}; then "\
+		"if run evi; then " \
+			"if run dhcp_boot; then " \
+				"echo dhcp done;" \
+			"else " \
+				"echo dhcpfile loaded but boot failed;" \
+				"exit;" \
+			"fi;" \
+		"fi;" \
+	"fi;" \
+	"echo; echo bootscript not found via dhcp; "
 
 #define CONFIG_ARP_TIMEOUT     200UL
 
